@@ -168,21 +168,28 @@ input, select {
   margin-bottom: 12px;
 }
 
-.table { display: grid; gap: 8px; }
+.table {
+  display: grid;
+  gap: 10px;
+}
+
 .row {
   display: grid;
-  grid-template-columns: 60px 120px 100px 160px 120px 220px;
+  grid-template-columns: 60px 120px 110px 180px 120px 200px;
   gap: 12px;
-  padding: 8px;
-  border-radius: 8px;
+  padding: 12px 14px;
+  border-radius: 10px;
   background: #0b1220;
   border: 1px solid #1f2937;
+  align-items: center;
 }
+
 .row.header {
   background: transparent;
   border: none;
   color: var(--muted);
   font-weight: 700;
+  padding-left: 14px;
 }
 
 .row.users-row {
@@ -193,11 +200,14 @@ input, select {
   grid-template-columns: 60px 1fr 1fr 1fr 1.3fr;
 }
 
-.row div {
-  overflow-wrap: anywhere;
-}
+.row div { overflow-wrap: anywhere; }
 
 .actions { display: flex; gap: 8px; }
+
+.actions .btn {
+  padding: 6px 10px;
+  font-size: 12px;
+}
 
 .chart { width: 100%; height: 180px; }
 

@@ -1,18 +1,24 @@
 const fs = require("fs");
 const path = require("path");
-const Database = require("better-sqlite3");
+const { Pool } = require("pg");
 const config = require("../config");
 
-const dbPath = path.join(process.cwd(), config.DB_FILE);
+const pool = new Pool({
+  connectionString: config.DATABASE_URL,
+  ssl: config.DATABASE_SSL ? { rejectUnauthorized: false } : false
+});
 
-const db = new Database(dbPath);
+async function init() {
+  const schemaPath = path.join(__dirname, "schema.sql");
+  const schema = fs.readFileSync(schemaPath, "utf8");
+  await pool.query(schema);
+}
 
-// SQLite safety/performance
-db.pragma("foreign_keys = ON");
-db.pragma("journal_mode = WAL");
+init().catch((err) => {
+  console.error("DB init failed:", err);
+  process.exit(1);
+});
 
-const schemaPath = path.join(__dirname, "schema.sql");
-const schema = fs.readFileSync(schemaPath, "utf8");
-db.exec(schema);
-
-module.exports = db;
+module.exports = {
+  query: (text, params) => pool.query(text, params)
+};

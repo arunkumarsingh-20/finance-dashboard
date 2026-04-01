@@ -26,23 +26,26 @@ const passwordSchema = z.object({
 });
 
 // Admin only
-router.post("/", requireRole("admin"), validate(createUserSchema), (req, res, next) => {
+router.post("/", requireRole("admin"), validate(createUserSchema), async (req, res, next) => {
   try {
     const { name, email, role, status = "active", password } = req.body;
     const hash = bcrypt.hashSync(password, 10);
 
-    const stmt = db.prepare(
-      "INSERT INTO users (name, email, role, status, password) VALUES (?, ?, ?, ?, ?)"
+    const insertRes = await db.query(
+      "INSERT INTO users (name, email, role, status, password) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+      [name, email, role, status, hash]
     );
-    const info = stmt.run(name, email, role, status, hash);
 
-    const user = db
-      .prepare("SELECT id, name, email, role, status, created_at FROM users WHERE id = ?")
-      .get(info.lastInsertRowid);
+    const userId = insertRes.rows[0].id;
 
-    res.status(201).json(user);
+    const userRes = await db.query(
+      "SELECT id, name, email, role, status, created_at FROM users WHERE id = $1",
+      [userId]
+    );
+
+    res.status(201).json(userRes.rows[0]);
   } catch (err) {
-    if (String(err).includes("UNIQUE")) {
+    if (String(err).includes("unique") || String(err).includes("UNIQUE")) {
       err.message = "Email already exists";
       err.status = 409;
     }
@@ -51,54 +54,71 @@ router.post("/", requireRole("admin"), validate(createUserSchema), (req, res, ne
 });
 
 // Admin only
-router.get("/", requireRole("admin"), (req, res) => {
-  const { status } = req.query;
-  if (status) {
-    const users = db
-      .prepare("SELECT id, name, email, role, status, created_at FROM users WHERE status = ? ORDER BY id DESC")
-      .all(status);
-    return res.json(users);
+router.get("/", requireRole("admin"), async (req, res, next) => {
+  try {
+    const { status } = req.query;
+    if (status) {
+      const usersRes = await db.query(
+        "SELECT id, name, email, role, status, created_at FROM users WHERE status = $1 ORDER BY id DESC",
+        [status]
+      );
+      return res.json(usersRes.rows);
+    }
+
+    const usersRes = await db.query(
+      "SELECT id, name, email, role, status, created_at FROM users ORDER BY id DESC"
+    );
+    res.json(usersRes.rows);
+  } catch (err) {
+    next(err);
   }
-
-  const users = db
-    .prepare("SELECT id, name, email, role, status, created_at FROM users ORDER BY id DESC")
-    .all();
-  res.json(users);
 });
 
 // Admin only
-router.get("/:id", requireRole("admin"), (req, res) => {
-  const user = db
-    .prepare("SELECT id, name, email, role, status, created_at FROM users WHERE id = ?")
-    .get(req.params.id);
-  if (!user) return res.status(404).json({ error: "User not found" });
-  res.json(user);
+router.get("/:id", requireRole("admin"), async (req, res, next) => {
+  try {
+    const userRes = await db.query(
+      "SELECT id, name, email, role, status, created_at FROM users WHERE id = $1",
+      [req.params.id]
+    );
+    const user = userRes.rows[0];
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json(user);
+  } catch (err) {
+    next(err);
+  }
 });
 
 // Admin only
-router.patch("/:id", requireRole("admin"), validate(updateUserSchema), (req, res) => {
-  const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.params.id);
-  if (!user) return res.status(404).json({ error: "User not found" });
+router.patch("/:id", requireRole("admin"), validate(updateUserSchema), async (req, res, next) => {
+  try {
+    const userRes = await db.query("SELECT * FROM users WHERE id = $1", [req.params.id]);
+    const user = userRes.rows[0];
+    if (!user) return res.status(404).json({ error: "User not found" });
 
-  const updates = {
-    name: req.body.name ?? user.name,
-    role: req.body.role ?? user.role,
-    status: req.body.status ?? user.status
-  };
+    const updates = {
+      name: req.body.name ?? user.name,
+      role: req.body.role ?? user.role,
+      status: req.body.status ?? user.status
+    };
 
-  db.prepare(
-    "UPDATE users SET name = ?, role = ?, status = ? WHERE id = ?"
-  ).run(updates.name, updates.role, updates.status, req.params.id);
+    await db.query(
+      "UPDATE users SET name = $1, role = $2, status = $3 WHERE id = $4",
+      [updates.name, updates.role, updates.status, req.params.id]
+    );
 
-  const updated = db
-    .prepare("SELECT id, name, email, role, status, created_at FROM users WHERE id = ?")
-    .get(req.params.id);
-
-  res.json(updated);
+    const updatedRes = await db.query(
+      "SELECT id, name, email, role, status, created_at FROM users WHERE id = $1",
+      [req.params.id]
+    );
+    res.json(updatedRes.rows[0]);
+  } catch (err) {
+    next(err);
+  }
 });
 
 // Admin or Self: change password
-router.patch("/:id/password", validate(passwordSchema), (req, res, next) => {
+router.patch("/:id/password", validate(passwordSchema), async (req, res, next) => {
   try {
     const targetId = Number(req.params.id);
     if (req.user.role !== "admin" && req.user.id !== targetId) {
@@ -106,7 +126,7 @@ router.patch("/:id/password", validate(passwordSchema), (req, res, next) => {
     }
 
     const hash = bcrypt.hashSync(req.body.password, 10);
-    db.prepare("UPDATE users SET password = ? WHERE id = ?").run(hash, targetId);
+    await db.query("UPDATE users SET password = $1 WHERE id = $2", [hash, targetId]);
 
     res.json({ success: true });
   } catch (err) {

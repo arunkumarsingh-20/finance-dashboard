@@ -3,13 +3,26 @@ import "./App.css";
 
 const API = "/api/v1";
 
-async function apiFetch(url, options = {}, retries = 5, delay = 800) {
+async function apiFetch(url, options = {}, retries = 4, delay = 600) {
   const res = await fetch(url, options);
   if (res.status === 429 && retries > 0) {
     await new Promise(r => setTimeout(r, delay));
     return apiFetch(url, options, retries - 1, delay * 1.5);
   }
   return res;
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value).slice(0, 10);
+  return d.toISOString().slice(0, 10);
+}
+
+function formatAmount(value) {
+  const n = Number(value);
+  if (Number.isNaN(n)) return value;
+  return n.toLocaleString("en-IN");
 }
 
 function LineChart({ data }) {
@@ -19,17 +32,16 @@ function LineChart({ data }) {
   const pad = 20;
 
   const maxVal = Math.max(
-    ...data.map(d => Math.max(d.income || 0, d.expense || 0)),
+    ...data.map(d => Math.max(Number(d.income || 0), Number(d.expense || 0))),
     1
   );
 
   const xStep = (width - pad * 2) / (data.length - 1 || 1);
-
   const toY = v => height - pad - (v / maxVal) * (height - pad * 2);
   const toX = i => pad + i * xStep;
 
-  const incomePoints = data.map((d, i) => `${toX(i)},${toY(d.income || 0)}`).join(" ");
-  const expensePoints = data.map((d, i) => `${toX(i)},${toY(d.expense || 0)}`).join(" ");
+  const incomePoints = data.map((d, i) => `${toX(i)},${toY(Number(d.income || 0))}`).join(" ");
+  const expensePoints = data.map((d, i) => `${toX(i)},${toY(Number(d.expense || 0))}`).join(" ");
 
   return (
     <svg className="chart" viewBox={`0 0 ${width} ${height}`}>
@@ -41,16 +53,16 @@ function LineChart({ data }) {
 
 function BarChart({ data }) {
   if (!data?.length) return <div className="empty">No data</div>;
-  const maxVal = Math.max(...data.map(d => (d.total || 0)), 1);
+  const maxVal = Math.max(...data.map(d => Number(d.total || 0)), 1);
   return (
     <div className="bars">
       {data.map((d) => (
         <div className="bar-row" key={d.category}>
           <span>{d.category}</span>
           <div className="bar">
-            <div className="bar-fill" style={{ width: `${(d.total / maxVal) * 100}%` }} />
+            <div className="bar-fill" style={{ width: `${(Number(d.total) / maxVal) * 100}%` }} />
           </div>
-          <strong>{d.total}</strong>
+          <strong>{formatAmount(d.total)}</strong>
         </div>
       ))}
     </div>
@@ -60,7 +72,7 @@ function BarChart({ data }) {
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("token") || "");
   const [user, setUser] = useState(null);
-  const [tab, setTab] = useState("dashboard");
+  const [tab, setTab] = useState(localStorage.getItem("tab") || "dashboard");
 
   const [email, setEmail] = useState("admin@example.com");
   const [password, setPassword] = useState("password123");
@@ -90,6 +102,11 @@ export default function App() {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {})
   }), [token]);
+
+  useEffect(() => {
+    localStorage.setItem("tab", tab);
+  }, [tab]);
+
 
   async function login() {
     const res = await apiFetch(`${API}/auth/login`, {
@@ -141,7 +158,11 @@ export default function App() {
     const res = await apiFetch(`${API}/summary/category`, { headers: authHeaders });
     const data = await res.json();
     if (res.ok) {
-      const withTotal = (data || []).map(d => ({ ...d, total: (d.income || 0) + (d.expense || 0) }));
+      const withTotal = (data || []).map(d => {
+        const income = Number(d.income || 0);
+        const expense = Number(d.expense || 0);
+        return { ...d, income, expense, total: income + expense };
+      });
       setCategoryTotals(withTotal);
     }
   }
@@ -166,10 +187,13 @@ export default function App() {
     });
     const data = await res.json();
     if (data.id) {
-      loadRecords();
+      setRecords(prev => [data, ...prev]);
       loadSummary();
+      loadMonthly();
+      loadCategoryTotals();
       if (user?.role === "admin") loadAudits();
-    } else {
+    }
+    else {
       alert(data.error || "Create failed");
     }
   }
@@ -185,6 +209,8 @@ export default function App() {
       setEditingId(null);
       loadRecords();
       loadSummary();
+      loadMonthly();
+      loadCategoryTotals();
       if (user?.role === "admin") loadAudits();
     } else {
       alert(data.error || "Update failed");
@@ -201,6 +227,8 @@ export default function App() {
     if (res.ok) {
       loadRecords();
       loadSummary();
+      loadMonthly();
+      loadCategoryTotals();
       if (user?.role === "admin") loadAudits();
     }
   }
@@ -208,10 +236,10 @@ export default function App() {
   function startEdit(r) {
     setEditingId(r.id);
     setEditForm({
-      amount: r.amount,
+      amount: Number(r.amount || 0),
       type: r.type,
       category: r.category,
-      date: r.date,
+      date: formatDate(r.date),
       notes: r.notes || ""
     });
   }
@@ -306,15 +334,15 @@ export default function App() {
                 <section className="stats">
                   <div className="stat">
                     <span>Total Income</span>
-                    <strong>{summary?.totalIncome ?? "--"}</strong>
+                    <strong>{formatAmount(summary?.totalIncome ?? 0)}</strong>
                   </div>
                   <div className="stat">
                     <span>Total Expense</span>
-                    <strong>{summary?.totalExpense ?? "--"}</strong>
+                    <strong>{formatAmount(summary?.totalExpense ?? 0)}</strong>
                   </div>
                   <div className="stat">
                     <span>Net Balance</span>
-                    <strong>{summary?.netBalance ?? "--"}</strong>
+                    <strong>{formatAmount(summary?.netBalance ?? 0)}</strong>
                   </div>
                 </section>
 
@@ -322,17 +350,19 @@ export default function App() {
                   <div className="card">
                     <h2>Create Record</h2>
                     <div className="form-grid">
-                      <input type="number" value={form.amount} onChange={e => setForm({ ...form, amount: Number(e.target.value) })} />
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={form.amount}
+                        onChange={e => setForm({ ...form, amount: Number(e.target.value) || 0 })}
+                      />
                       <select value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}>
                         <option value="income">Income</option>
                         <option value="expense">Expense</option>
                       </select>
                       <input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} placeholder="Category" />
-                      <input
-                        type="date"
-                        value={form.date}
-                        onChange={e => setForm({ ...form, date: e.target.value })}
-                      />
+                      <input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} />
                       <input value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Notes" />
                       <button className="btn primary" onClick={createRecord}>Create</button>
                     </div>
@@ -366,46 +396,13 @@ export default function App() {
                   {records.map(r => (
                     <div className="row" key={r.id}>
                       <div>{r.id}</div>
-                      <div>
-                        {editingId === r.id ? (
-                          <input value={editForm.amount} onChange={e => setEditForm({ ...editForm, amount: Number(e.target.value) })} />
-                        ) : r.amount}
-                      </div>
-                      <div>
-                        {editingId === r.id ? (
-                          <select value={editForm.type} onChange={e => setEditForm({ ...editForm, type: e.target.value })}>
-                            <option value="income">Income</option>
-                            <option value="expense">Expense</option>
-                          </select>
-                        ) : r.type}
-                      </div>
-                      <div>
-                        {editingId === r.id ? (
-                          <input value={editForm.category} onChange={e => setEditForm({ ...editForm, category: e.target.value })} />
-                        ) : r.category}
-                      </div>
-                      <div>
-                        {editingId === r.id ? (
-                          <input
-                            type="date"
-                            value={editForm.date}
-                            onChange={e => setEditForm({ ...editForm, date: e.target.value })}
-                          />
-
-                        ) : r.date}
-                      </div>
+                      <div>{formatAmount(r.amount)}</div>
+                      <div>{r.type}</div>
+                      <div>{r.category}</div>
+                      <div>{formatDate(r.date)}</div>
                       <div className="actions">
-                        {editingId === r.id ? (
-                          <>
-                            <button className="btn primary" onClick={() => saveEdit(r.id)}>Save</button>
-                            <button className="btn ghost" onClick={() => setEditingId(null)}>Cancel</button>
-                          </>
-                        ) : (
-                          <>
-                            <button className="btn ghost" onClick={() => startEdit(r)}>Edit</button>
-                            <button className="btn danger" onClick={() => deleteRecord(r.id)}>Delete</button>
-                          </>
-                        )}
+                        <button className="btn ghost" onClick={() => startEdit(r)}>Edit</button>
+                        <button className="btn danger" onClick={() => deleteRecord(r.id)}>Delete</button>
                       </div>
                     </div>
                   ))}
@@ -456,7 +453,7 @@ export default function App() {
                       <div>{a.action}</div>
                       <div>{a.resource}</div>
                       <div>{a.user_name || "System"}</div>
-                      <div>{a.record_date || "-"}</div>
+                      <div>{formatDate(a.record_date)}</div>
                     </div>
                   ))}
                 </div>

@@ -1,17 +1,32 @@
+require("dotenv").config();
 const db = require("../src/db/db");
+const bcrypt = require("bcryptjs");
 
-const cols = db.prepare("PRAGMA table_info(users)").all();
-const hasPassword = cols.some(c => c.name === "password");
+async function run() {
+  // Check if password column exists
+  const colsRes = await db.query(`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_name='users' AND column_name='password'
+  `);
 
-if (!hasPassword) {
-  db.prepare("ALTER TABLE users ADD COLUMN password TEXT").run();
-  // set default password for existing users
-  const bcrypt = require("bcryptjs");
-  const hash = bcrypt.hashSync("password123", 10);
-  db.prepare("UPDATE users SET password = ? WHERE password IS NULL").run(hash);
+  const hasPassword = colsRes.rows.length > 0;
 
-  console.log("Migration applied: added password column");
-  console.log("Default password for existing users: password123");
-} else {
-  console.log("Migration already applied");
+  if (!hasPassword) {
+    await db.query("ALTER TABLE users ADD COLUMN password TEXT");
+    const hash = bcrypt.hashSync("password123", 10);
+    await db.query("UPDATE users SET password = $1 WHERE password IS NULL", [hash]);
+
+    console.log("Migration applied: added password column");
+    console.log("Default password for existing users: password123");
+  } else {
+    console.log("Migration already applied");
+  }
+
+  process.exit(0);
 }
+
+run().catch(err => {
+  console.error(err);
+  process.exit(1);
+});
