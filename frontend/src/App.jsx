@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
-const API = "/api/v1";
+const API = import.meta.env.VITE_API_BASE || "/api/v1";
+
 
 async function apiFetch(url, options = {}, retries = 4, delay = 600) {
   const res = await fetch(url, options);
