@@ -42,7 +42,7 @@ This project implements a finance dashboard API where different roles (viewer, a
 
 ## Project Structure
 finance-dashboard-backend/
-│── src/
+├── src/
 │ ├── app.js
 │ ├── server.js
 │ ├── config.js
@@ -64,11 +64,11 @@ finance-dashboard-backend/
 │ └── utils/
 │ └── validate.js
 │
-│── scripts/
+├── scripts/
 │ ├── seed.js
 │ └── seedRecords.js
 │
-│── frontend/ (React UI)
+└── frontend/ (React UI)
 
 
 ---
